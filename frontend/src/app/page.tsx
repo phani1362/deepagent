@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { PasswordGate } from "@/components/PasswordGate";
 
 const ChatInterface = dynamic(
   () => import("@/components/ChatInterface").then((m) => m.ChatInterface),
@@ -8,5 +9,9 @@ const ChatInterface = dynamic(
 );
 
 export default function Home() {
-  return <ChatInterface />;
+  return (
+    <PasswordGate>
+      <ChatInterface />
+    </PasswordGate>
+  );
 }
