@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { streamChat, AgentEvent } from "@/lib/api";
+import { streamChat } from "@/lib/api";
 
 export interface ToolStep {
   tool: string;
@@ -149,5 +149,13 @@ export function useAgent() {
     abortRef.current = true;
   }, []);
 
-  return { messages, isLoading, error, sendMessage, reset, sessionId };
+  const loadMessages = useCallback((msgs: Message[], backendSessionId: string | null) => {
+    abortRef.current = true;
+    setMessages(msgs);
+    setSessionId(backendSessionId);
+    setError(null);
+    setIsLoading(false);
+  }, []);
+
+  return { messages, isLoading, error, sendMessage, reset, loadMessages, sessionId };
 }
