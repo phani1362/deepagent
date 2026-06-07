@@ -290,13 +290,13 @@ export function ChatInterface() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.txt,.md"
+                accept=".pdf,.docx,.txt,.md"
                 onChange={handleFileChange}
                 className="hidden"
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                title="Upload a document (PDF, TXT, MD) for the agent to search"
+                title="Upload a document (PDF, DOCX, TXT, MD) for the agent to search"
                 className="w-11 h-11 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-violet-600 hover:border-violet-400 transition-all shrink-0"
               >
                 <Paperclip className="w-4 h-4" />

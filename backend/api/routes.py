@@ -10,7 +10,7 @@ from agent.documents import ingest_document, list_documents
 router = APIRouter()
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-ALLOWED_EXTENSIONS = (".pdf", ".txt", ".md")
+ALLOWED_EXTENSIONS = (".pdf", ".docx", ".txt", ".md")
 
 
 class ChatRequest(BaseModel):

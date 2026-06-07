@@ -11,6 +11,7 @@ from typing import Optional
 import chromadb
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from pypdf import PdfReader
+from docx import Document as DocxDocument
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
@@ -35,9 +36,17 @@ def _get_collection():
 
 
 def _extract_text(filename: str, raw: bytes) -> str:
-    if filename.lower().endswith(".pdf"):
+    lower = filename.lower()
+    if lower.endswith(".pdf"):
         reader = PdfReader(BytesIO(raw))
         return "\n".join(page.extract_text() or "" for page in reader.pages)
+    if lower.endswith(".docx"):
+        doc = DocxDocument(BytesIO(raw))
+        parts = [p.text for p in doc.paragraphs]
+        for table in doc.tables:
+            for row in table.rows:
+                parts.append(" | ".join(cell.text for cell in row.cells))
+        return "\n".join(parts)
     return raw.decode("utf-8", errors="ignore")
 
 
