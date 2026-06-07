@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { streamChat } from "@/lib/api";
+import { streamChat, createSession, uploadDocument, UploadResult } from "@/lib/api";
 
 export interface ToolStep {
   tool: string;
@@ -18,11 +18,20 @@ export interface Message {
   isStreaming?: boolean;
 }
 
+export interface UsageStats {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+}
+
 export function useAgent() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [documents, setDocuments] = useState<string[]>([]);
   const abortRef = useRef(false);
 
   const sendMessage = useCallback(
@@ -108,6 +117,15 @@ export function useAgent() {
               );
               break;
 
+            case "usage":
+              setUsage({
+                promptTokens: event.prompt_tokens ?? 0,
+                completionTokens: event.completion_tokens ?? 0,
+                totalTokens: event.total_tokens ?? 0,
+                estimatedCostUsd: event.estimated_cost_usd ?? 0,
+              });
+              break;
+
             case "done":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -142,10 +160,28 @@ export function useAgent() {
     [isLoading, sessionId]
   );
 
+  const uploadFile = useCallback(
+    async (file: File): Promise<UploadResult> => {
+      let currentSessionId = sessionId;
+      if (!currentSessionId) {
+        currentSessionId = await createSession();
+        setSessionId(currentSessionId);
+      }
+      const result = await uploadDocument(currentSessionId, file);
+      if (!result.error && result.filename) {
+        setDocuments((prev) => Array.from(new Set([...prev, result.filename!])));
+      }
+      return result;
+    },
+    [sessionId]
+  );
+
   const reset = useCallback(() => {
     setMessages([]);
     setSessionId(null);
     setError(null);
+    setUsage(null);
+    setDocuments([]);
     abortRef.current = true;
   }, []);
 
@@ -157,5 +193,16 @@ export function useAgent() {
     setIsLoading(false);
   }, []);
 
-  return { messages, isLoading, error, sendMessage, reset, loadMessages, sessionId };
+  return {
+    messages,
+    isLoading,
+    error,
+    sendMessage,
+    reset,
+    loadMessages,
+    sessionId,
+    usage,
+    documents,
+    uploadFile,
+  };
 }

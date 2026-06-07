@@ -1,7 +1,7 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
 export interface AgentEvent {
-  type: "session_id" | "tool_call" | "tool_result" | "token" | "done" | "error";
+  type: "session_id" | "tool_call" | "tool_result" | "token" | "usage" | "done" | "error";
   content?: string;
   tool?: string;
   args?: Record<string, unknown>;
@@ -9,6 +9,17 @@ export interface AgentEvent {
   summary?: string;
   message?: string;
   session_id?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  estimated_cost_usd?: number;
+}
+
+export interface UploadResult {
+  filename?: string;
+  chunks?: number;
+  characters?: number;
+  error?: string;
 }
 
 export async function createSession(): Promise<string> {
@@ -58,4 +69,14 @@ export async function* streamChat(
 
 export async function clearSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/session/${sessionId}`, { method: "DELETE" });
+}
+
+export async function uploadDocument(sessionId: string, file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("session_id", sessionId);
+  form.append("file", file);
+
+  const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json();
 }

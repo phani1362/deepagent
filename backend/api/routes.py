@@ -1,12 +1,16 @@
 import json
 import uuid
-from fastapi import APIRouter
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from agent.core import run_agent
 from agent.memory import get_history, clear_session
+from agent.documents import ingest_document, list_documents
 
 router = APIRouter()
+
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+ALLOWED_EXTENSIONS = (".pdf", ".txt", ".md")
 
 
 class ChatRequest(BaseModel):
@@ -32,6 +36,25 @@ async def get_chat_history(session_id: str):
 async def delete_session(session_id: str):
     clear_session(session_id)
     return {"status": "cleared"}
+
+
+@router.post("/upload")
+async def upload_document(session_id: str = Form(...), file: UploadFile = File(...)):
+    filename = file.filename or "upload"
+    if not filename.lower().endswith(ALLOWED_EXTENSIONS):
+        return {"error": f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}
+
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return {"error": "File too large (5MB limit)"}
+
+    result = ingest_document(session_id, filename, raw)
+    return result
+
+
+@router.get("/documents/{session_id}")
+async def get_documents(session_id: str):
+    return {"session_id": session_id, "documents": list_documents(session_id)}
 
 
 @router.post("/chat")

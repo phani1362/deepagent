@@ -15,7 +15,8 @@ SYSTEM_PROMPT = """You are DeepAgent, an expert autonomous research and analysis
 You have access to these tools:
 - web_search: find current information on any topic
 - read_url: read the full content of a specific webpage
-- execute_python: run Python code for calculations or data analysis
+- execute_code: run code in any supported language (python, javascript, typescript, bash) — pick the language that fits the user's request, including a language they explicitly name
+- search_documents: search files the user has uploaded in this session (PDFs, text, markdown)
 
 ## How you work
 1. PLAN: Briefly outline your research approach (2-3 steps).
@@ -26,11 +27,20 @@ You have access to these tools:
 - Always verify information from at least 2 sources for important claims.
 - Be specific — include numbers, dates, names when available.
 - If past memory is provided, use it to avoid redundant research.
-- Format your final answer in Markdown with headers, bullet points, and code blocks where relevant.
+- Format your final answer in Markdown with headers, bullet points, and code blocks where relevant. When you write code, use a fenced code block tagged with the correct language (e.g. ```javascript).
+- When you use information from web_search or read_url, cite it inline with a numbered reference like [1], [2] that corresponds to the source's position, and end your answer with a "## Sources" section listing each [n] as a Markdown link: `[n] [Title](URL)`.
 - Never make up information — only report what your tools confirm.
 """
 
 MAX_ITERATIONS = 10
+
+# gpt-4o pricing per 1M tokens (USD) — used to give the user a live cost estimate
+PRICE_PER_1M_INPUT = 2.50
+PRICE_PER_1M_OUTPUT = 10.00
+
+
+def _usage_cost(prompt_tokens: int, completion_tokens: int) -> float:
+    return (prompt_tokens / 1_000_000) * PRICE_PER_1M_INPUT + (completion_tokens / 1_000_000) * PRICE_PER_1M_OUTPUT
 
 
 async def run_agent(
@@ -68,6 +78,18 @@ async def run_agent(
     iteration = 0
     final_answer = ""
 
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+
+    def usage_event():
+        return {
+            "type": "usage",
+            "prompt_tokens": total_prompt_tokens,
+            "completion_tokens": total_completion_tokens,
+            "total_tokens": total_prompt_tokens + total_completion_tokens,
+            "estimated_cost_usd": round(_usage_cost(total_prompt_tokens, total_completion_tokens), 6),
+        }
+
     while iteration < MAX_ITERATIONS:
         iteration += 1
 
@@ -79,6 +101,11 @@ async def run_agent(
             temperature=0.2,
             stream=False,
         )
+
+        if response.usage:
+            total_prompt_tokens += response.usage.prompt_tokens
+            total_completion_tokens += response.usage.completion_tokens
+            yield usage_event()
 
         msg = response.choices[0].message
 
@@ -93,7 +120,7 @@ async def run_agent(
 
                 yield {"type": "tool_call", "tool": fn_name, "args": fn_args}
 
-                tool_result = run_tool(fn_name, fn_args)
+                tool_result = run_tool(fn_name, fn_args, session_id=session_id)
 
                 yield {"type": "tool_result", "tool": fn_name, "result": tool_result[:2000]}
 
@@ -110,14 +137,19 @@ async def run_agent(
                 messages=messages,
                 stream=True,
                 temperature=0.2,
+                stream_options={"include_usage": True},
             )
 
             streamed = ""
             async for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    streamed += delta
-                    yield {"type": "token", "content": delta}
+                if chunk.usage:
+                    total_prompt_tokens += chunk.usage.prompt_tokens
+                    total_completion_tokens += chunk.usage.completion_tokens
+                if chunk.choices:
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        streamed += delta
+                        yield {"type": "token", "content": delta}
 
             final_answer = streamed
             add_message(session_id, "assistant", final_answer)
@@ -126,6 +158,7 @@ async def run_agent(
             summary = final_answer[:600]
             save_research(session_id, user_query, summary)
 
+            yield usage_event()
             yield {"type": "done", "summary": summary}
             return
 
