@@ -10,12 +10,18 @@ export interface ToolStep {
   status: "running" | "done" | "error";
 }
 
+export interface Verification {
+  verdict: "verified" | "issues_found" | "unverified";
+  notes: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   toolSteps?: ToolStep[];
   isStreaming?: boolean;
+  verification?: Verification;
 }
 
 export interface UsageStats {
@@ -35,7 +41,7 @@ export function useAgent() {
   const abortRef = useRef(false);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, enabledTools?: string[] | null) => {
       if (!text.trim() || isLoading) return;
 
       abortRef.current = false;
@@ -62,7 +68,7 @@ export function useAgent() {
       try {
         let currentSessionId = sessionId;
 
-        for await (const event of streamChat(text, currentSessionId)) {
+        for await (const event of streamChat(text, currentSessionId, enabledTools)) {
           if (abortRef.current) break;
 
           switch (event.type) {
@@ -124,6 +130,22 @@ export function useAgent() {
                 totalTokens: event.total_tokens ?? 0,
                 estimatedCostUsd: event.estimated_cost_usd ?? 0,
               });
+              break;
+
+            case "verification":
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        verification: {
+                          verdict: (event.verdict ?? "unverified") as Verification["verdict"],
+                          notes: event.notes ?? "",
+                        },
+                      }
+                    : m
+                )
+              );
               break;
 
             case "done":

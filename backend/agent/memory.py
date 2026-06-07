@@ -66,6 +66,36 @@ def save_research(session_id: str, query: str, summary: str):
         pass
 
 
+def list_memories(session_id: Optional[str] = None) -> list[dict]:
+    """List stored long-term memories, optionally filtered to one session — makes the agent's memory inspectable."""
+    try:
+        col = _get_collection()
+        where = {"session_id": session_id} if session_id else None
+        results = col.get(where=where) if where else col.get()
+        items = []
+        for doc_id, doc, meta in zip(results.get("ids", []), results.get("documents", []), results.get("metadatas", [])):
+            items.append({
+                "id": doc_id,
+                "summary": doc,
+                "original_query": meta.get("query", ""),
+                "session_id": meta.get("session_id", ""),
+                "timestamp": meta.get("timestamp", ""),
+            })
+        items.sort(key=lambda m: m["timestamp"], reverse=True)
+        return items
+    except Exception:
+        return []
+
+
+def delete_memory(memory_id: str) -> bool:
+    try:
+        col = _get_collection()
+        col.delete(ids=[memory_id])
+        return True
+    except Exception:
+        return False
+
+
 def search_memory(query: str, n_results: int = 3) -> list[dict]:
     """Search past research for relevant context."""
     try:

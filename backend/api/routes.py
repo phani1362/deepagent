@@ -4,7 +4,7 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from agent.core import run_agent
-from agent.memory import get_history, clear_session
+from agent.memory import get_history, clear_session, list_memories, delete_memory
 from agent.documents import ingest_document, list_documents
 
 router = APIRouter()
@@ -16,6 +16,7 @@ ALLOWED_EXTENSIONS = (".pdf", ".docx", ".txt", ".md")
 class ChatRequest(BaseModel):
     session_id: str | None = None
     message: str
+    enabled_tools: list[str] | None = None
 
 
 class SessionResponse(BaseModel):
@@ -36,6 +37,17 @@ async def get_chat_history(session_id: str):
 async def delete_session(session_id: str):
     clear_session(session_id)
     return {"status": "cleared"}
+
+
+@router.get("/memories")
+async def get_memories(session_id: str | None = None):
+    return {"memories": list_memories(session_id)}
+
+
+@router.delete("/memories/{memory_id}")
+async def remove_memory(memory_id: str):
+    ok = delete_memory(memory_id)
+    return {"status": "deleted" if ok else "not_found"}
 
 
 @router.post("/upload")
@@ -65,7 +77,7 @@ async def chat(req: ChatRequest):
         # Send session_id first so client can track it
         yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
 
-        async for event in run_agent(session_id, req.message):
+        async for event in run_agent(session_id, req.message, enabled_tools=req.enabled_tools):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
         yield "data: [DONE]\n\n"

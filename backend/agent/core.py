@@ -43,9 +43,46 @@ def _usage_cost(prompt_tokens: int, completion_tokens: int) -> float:
     return (prompt_tokens / 1_000_000) * PRICE_PER_1M_INPUT + (completion_tokens / 1_000_000) * PRICE_PER_1M_OUTPUT
 
 
+VERIFIER_PROMPT = """You are a fact-checking critic reviewing an AI assistant's answer.
+
+You will be given the user's question, the assistant's final answer, and the raw evidence
+the assistant gathered from its tools (web search results, page contents, document excerpts).
+
+Check whether each substantive claim in the answer is actually supported by the evidence.
+
+Respond with strict JSON only, in this exact shape:
+{"verdict": "verified" | "issues_found", "notes": "<one or two sentences explaining your verdict; if issues_found, name the specific unsupported claim(s)>"}
+"""
+
+
+async def _verify_answer(client: AsyncOpenAI, user_query: str, final_answer: str, evidence: list[str]) -> dict:
+    """Second-pass self-critique: checks the final answer's claims against gathered tool evidence."""
+    if not evidence:
+        return {"verdict": "unverified", "notes": "No external evidence was gathered for this answer — it relies on the model's own knowledge."}
+
+    evidence_block = "\n\n".join(evidence)[:6000]
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": VERIFIER_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"## User question\n{user_query}\n\n## Assistant's answer\n{final_answer}\n\n## Evidence gathered\n{evidence_block}",
+                },
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        return {"verdict": "unverified", "notes": f"Verification step failed: {e}"}
+
+
 async def run_agent(
     session_id: str,
     user_query: str,
+    enabled_tools: list[str] | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Yields structured SSE events:
@@ -75,8 +112,15 @@ async def run_agent(
 
     add_message(session_id, "user", user_query)
 
+    active_tool_schemas = (
+        [t for t in TOOL_SCHEMAS if t["function"]["name"] in enabled_tools]
+        if enabled_tools is not None
+        else TOOL_SCHEMAS
+    )
+
     iteration = 0
     final_answer = ""
+    evidence: list[str] = []
 
     total_prompt_tokens = 0
     total_completion_tokens = 0
@@ -96,8 +140,8 @@ async def run_agent(
         response = await client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            tools=TOOL_SCHEMAS,
-            tool_choice="auto",
+            tools=active_tool_schemas,
+            tool_choice="auto" if active_tool_schemas else "none",
             temperature=0.2,
             stream=False,
         )
@@ -121,6 +165,9 @@ async def run_agent(
                 yield {"type": "tool_call", "tool": fn_name, "args": fn_args}
 
                 tool_result = run_tool(fn_name, fn_args, session_id=session_id)
+
+                if fn_name in ("web_search", "read_url", "search_documents"):
+                    evidence.append(f"[{fn_name} | {json.dumps(fn_args)}]\n{tool_result[:1500]}")
 
                 yield {"type": "tool_result", "tool": fn_name, "result": tool_result[:2000]}
 
@@ -159,6 +206,10 @@ async def run_agent(
             save_research(session_id, user_query, summary)
 
             yield usage_event()
+
+            verification = await _verify_answer(client, user_query, final_answer, evidence)
+            yield {"type": "verification", **verification}
+
             yield {"type": "done", "summary": summary}
             return
 

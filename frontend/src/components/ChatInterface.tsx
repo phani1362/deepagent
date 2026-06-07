@@ -5,6 +5,8 @@ import { useAgent } from "@/hooks/useAgent";
 import { useChatHistory, ChatSession } from "@/hooks/useChatHistory";
 import { MessageBubble } from "./MessageBubble";
 import { HistorySidebar } from "./HistorySidebar";
+import { ToolToggleMenu, AVAILABLE_TOOLS } from "./ToolToggleMenu";
+import { MemoryPanel } from "./MemoryPanel";
 import {
   Send,
   Trash2,
@@ -16,6 +18,7 @@ import {
   Download,
   FileText,
   DollarSign,
+  Brain,
 } from "lucide-react";
 
 const EXAMPLE_QUERIES = [
@@ -45,6 +48,8 @@ export function ChatInterface() {
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
   const [currentSessionHistoryId] = useState(() => crypto.randomUUID());
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [enabledTools, setEnabledTools] = useState<string[]>(AVAILABLE_TOOLS.map((t) => t.id));
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -112,7 +117,7 @@ export function ChatInterface() {
       setActiveHistoryId(currentSessionHistoryId);
     }
 
-    await sendMessage(msg);
+    await sendMessage(msg, enabledTools);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -210,6 +215,14 @@ export function ChatInterface() {
                 {usage.totalTokens.toLocaleString()} tokens · ${usage.estimatedCostUsd.toFixed(4)}
               </span>
             )}
+            <button
+              onClick={() => setMemoryPanelOpen(true)}
+              title="See what DeepAgent remembers from past research"
+              className="flex items-center gap-1.5 text-sm text-zinc-500 hover:text-violet-600 transition-colors px-3 py-1.5 rounded-lg hover:bg-violet-50 dark:hover:bg-violet-950"
+            >
+              <Brain className="w-4 h-4" />
+              <span className="hidden sm:inline">Memory</span>
+            </button>
             {messages.length > 0 && (
               <button
                 onClick={handleExport}
@@ -301,6 +314,9 @@ export function ChatInterface() {
               >
                 <Paperclip className="w-4 h-4" />
               </button>
+              <div className="shrink-0 self-center">
+                <ToolToggleMenu enabledTools={enabledTools} onChange={setEnabledTools} />
+              </div>
               <div className="flex-1 relative">
                 <textarea
                   ref={textareaRef}
@@ -327,6 +343,10 @@ export function ChatInterface() {
           </p>
         </div>
       </div>
+
+      {memoryPanelOpen && (
+        <MemoryPanel sessionId={sessionId} onClose={() => setMemoryPanelOpen(false)} />
+      )}
     </div>
   );
 }
